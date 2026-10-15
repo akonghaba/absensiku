@@ -15,10 +15,14 @@
 <header class="top"><div class="brand"><div class="logo">A</div><div><h1>AbsensiKu</h1><p>Presensi kelas · XI TKJ</p></div></div><span id="userPill" class="pill">Belum masuk</span></header>
 <div id="message" class="notice hidden" role="status"></div>
 <section id="loginView" class="card login">
-<h2 style="margin-top:0">Masuk ke kelas</h2><p class="muted">Gunakan akun yang sudah dibuat oleh pengelola. Pendaftaran publik dimatikan.</p>
-<form id="loginForm"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required placeholder="nama@email.com"><label for="password">Kata sandi</label><input id="password" type="password" autocomplete="current-password" required placeholder="Kata sandi akun"><div style="height:12px"></div><button type="submit" style="width:100%">Masuk</button></form>
-<div class="row" style="margin-top:10px"><button id="forgotBtn" class="secondary" type="button">Lupa kata sandi</button></div>
-<p class="small muted">Akun dibuat lewat Supabase Auth oleh admin. Jangan bagikan kata sandi.</p>
+<h2 id="authTitle" style="margin-top:0">Masuk ke kelas</h2><p class="muted" id="authDescription">Masuk atau daftar akun baru. Semua akun baru otomatis menjadi Murid sampai Owner mengubah aksesnya.</p>
+<form id="loginForm"><div id="nameField" class="hidden"><label for="fullName">Nama lengkap</label><input id="fullName" autocomplete="name" placeholder="Nama lengkap"></div><label for="email">Email</label><input id="email" type="email" autocomplete="username" required placeholder="nama@email.com"><label for="password">Kata sandi</label><input id="password" type="password" autocomplete="current-password" required placeholder="Kata sandi akun"><div style="height:12px"></div><button id="authSubmit" type="submit" style="width:100%">Masuk</button></form>
+<div class="row" style="margin-top:10px"><button id="toggleAuth" class="secondary" type="button">Belum punya akun? Daftar</button><button id="forgotBtn" class="secondary" type="button">Lupa kata sandi</button></div>
+<p class="small muted">Pendaftaran tidak memberi hak Guru atau Sekretaris. Owner yang menentukan role setiap akun.</p>
+</section>
+<section id="recoveryView" class="card login hidden">
+<h2 style="margin-top:0">Buat kata sandi baru</h2><p class="muted">Masukkan kata sandi baru setelah membuka tautan pemulihan dari email.</p>
+<form id="recoveryForm"><label for="newPassword">Kata sandi baru</label><input id="newPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="Minimal 6 karakter"><label for="confirmPassword">Ulangi kata sandi</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="Ulangi kata sandi baru"><div style="height:12px"></div><button type="submit" style="width:100%">Simpan kata sandi</button></form>
 </section>
 <main id="appView" class="hidden">
 <div class="row" style="margin:12px 0"><div><h2 id="welcome" style="margin:0">Dashboard</h2><div id="roleText" class="muted small"></div></div><button id="logoutBtn" class="secondary">Keluar</button></div>
@@ -37,7 +41,7 @@ const SUPABASE_URL = "https://wegpfdgtairwjvvdikaq.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_To4902KKLrUEBUf9i4Y-EQ_AtZit5_o";
 const CLASS_NAME = "XI TKJ";
 const $ = id => document.getElementById(id);
-let sb, sessionUser, profile, students=[], attendanceRows=[], profilesCache=[], selectedTab="attendance";
+let sb, sessionUser, profile, students=[], attendanceRows=[], profilesCache=[], selectedTab="attendance", authMode="login", recoveryMode=false;
 const today = new Date(); const localDate = new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $("attendanceDate").value=localDate;
 function say(text,type=""){ $("message").textContent=text; $("message").className="notice"+(type?" "+type:""); }
@@ -49,10 +53,16 @@ function niceRole(r){return ({owner:"Owner",guru:"Guru",sekretaris:"Sekretaris",
 function setup(){
  if(!SUPABASE_URL.startsWith("https://")||!SUPABASE_ANON_KEY.startsWith("sb_publishable_")){say("Konfigurasi Supabase tidak valid.","error");return;}
  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
- sb.auth.onAuthStateChange((_event,s)=>{if(s?.user) setTimeout(()=>loadApp(s.user),0);else showLogin();});
+ sb.auth.onAuthStateChange((event,s)=>{
+  if(event==="PASSWORD_RECOVERY"){recoveryMode=true;showRecovery();return;}
+  if(recoveryMode)return;
+  if(s?.user)setTimeout(()=>loadApp(s.user),0);else showLogin();
+ });
  sb.auth.getSession().then(({data,error})=>{if(error)say(error.message,"error");else if(data.session)loadApp(data.session.user);});
 }
-function showLogin(){sessionUser=null;profile=null;$("loginView").classList.remove("hidden");$("appView").classList.add("hidden");$("userPill").textContent="Belum masuk";}
+function showLogin(){sessionUser=null;profile=null;$("recoveryView").classList.add("hidden");$("loginView").classList.remove("hidden");$("appView").classList.add("hidden");$("userPill").textContent="Belum masuk";}
+function showRecovery(){recoveryMode=true;$("loginView").classList.add("hidden");$("appView").classList.add("hidden");$("recoveryView").classList.remove("hidden");say("Tautan pemulihan valid. Buat kata sandi baru.","success");}
+function setAuthMode(mode){authMode=mode;const signup=mode==="signup";$("authTitle").textContent=signup?"Daftar akun AbsensiKu":"Masuk ke kelas";$("authDescription").textContent=signup?"Buat akun baru. Role awal otomatis Murid dan Owner yang menentukan akses berikutnya.":"Masuk menggunakan email dan kata sandi akun.";$("nameField").classList.toggle("hidden",!signup);$("fullName").required=signup;$("authSubmit").textContent=signup?"Daftar":"Masuk";$("toggleAuth").textContent=signup?"Sudah punya akun? Masuk":"Belum punya akun? Daftar";$("forgotBtn").classList.toggle("hidden",signup);}
 async function loadApp(user){
  sessionUser=user; clearSay();
  const {data:p,error}=await sb.from("profiles").select("id,full_name,role,class_name").eq("id",user.id).maybeSingle();
@@ -96,7 +106,7 @@ async function loadAttendance(){
   $("attendanceList").innerHTML=attendanceRows.length?attendanceRows.map(a=>`<div class="item"><div><strong>${esc(a.student_name||"Presensi")}</strong><div class="sub">${esc(a.attendance_date)}</div></div><span class="badge">${esc(a.status)}</span></div>`).join(""):'<div class="empty">Belum ada presensi untuk tanggal ini.</div>';
  }else{
   const map=new Map(attendanceRows.map(a=>[a.student_id,a]));
-  $("attendanceList").innerHTML=students.map(s=>{const a=map.get(s.id);return `<div class="item"><div><strong>${esc(s.name)}</strong><div class="sub">NIS: ${esc(s.nis||"-")}</div></div><select data-student="${esc(s.id)}" aria-label="Status ${esc(s.name)}"><option value="hadir" ${a?.status==="hadir"?"selected":""}>Hadir</option><option value="izin" ${a?.status==="izin"?"selected":""}>Izin</option><option value="sakit" ${a?.status==="sakit"?"selected":""}>Sakit</option><option value="alpa" ${a?.status==="alpa"?"selected":""}>Alpa</option></select></div>`}).join("")||'<div class="empty">Tambahkan siswa dulu pada tab Data siswa.</div>';
+  $("attendanceList").innerHTML=students.map(s=>{const a=map.get(s.id);return `<div class="item"><div><strong>${esc(s.name)}</strong><div class="sub">NIS: ${esc(s.nis||"-")}</div></div><select data-student="${esc(s.id)}" aria-label="Status ${esc(s.name)}"><option value="Hadir" ${a?.status==="Hadir"||a?.status==="hadir"?"selected":""}>Hadir</option><option value="Izin" ${a?.status==="Izin"||a?.status==="izin"?"selected":""}>Izin</option><option value="Sakit" ${a?.status==="Sakit"||a?.status==="sakit"?"selected":""}>Sakit</option><option value="Alpa" ${a?.status==="Alpa"||a?.status==="alpa"?"selected":""}>Alpa</option></select></div>`}).join("")||'<div class="empty">Tambahkan siswa dulu pada tab Data siswa.</div>';
  }
 }
 async function loadHistory(){
@@ -112,12 +122,24 @@ async function loadProfiles(){
  $("profilesList").innerHTML=(data||[]).map(p=>`<div class="item"><div><strong>${esc(p.full_name||"Tanpa nama")}</strong><div class="sub">${esc(p.id)}</div></div><div class="right"><select data-role-id="${esc(p.id)}" aria-label="Peran ${esc(p.full_name||p.id)}"><option value="murid" ${p.role==="murid"?"selected":""}>Murid</option><option value="guru" ${p.role==="guru"?"selected":""}>Guru</option><option value="sekretaris" ${p.role==="sekretaris"?"selected":""}>Sekretaris</option><option value="owner" ${p.role==="owner"?"selected":""}>Owner</option></select><button data-role-save="${esc(p.id)}">Simpan</button></div></div>`).join("")||'<div class="empty">Belum ada profil akun.</div>';
  $("profilesList").querySelectorAll("[data-role-save]").forEach(b=>b.onclick=async()=>{const id=b.dataset.roleSave;const role=$("profilesList").querySelector(`[data-role-id="${CSS.escape(id)}"]`).value;if(id===sessionUser.id&&role!=="owner"){say("Owner tidak dapat menurunkan perannya sendiri dari halaman ini.","error");return;}b.disabled=true;const {error}=await sb.rpc("owner_set_user_role",{target_user_id:id,new_role:role});b.disabled=false;if(error)say("Gagal mengubah peran: "+error.message,"error");else{say("Peran berhasil diperbarui.","success");await loadProfiles();}});
 }
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();clearSay();const {error}=await sb.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});if(error)say("Login gagal: "+error.message,"error");});
-$("forgotBtn").onclick=async()=>{if(!sb){say("Isi konfigurasi Supabase terlebih dahulu.","error");return;}const email=$("email").value.trim();if(!email){say("Isi email di kolom Email dulu.","error");return;}const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});if(error)say("Gagal mengirim tautan reset: "+error.message,"error");else say("Jika email terdaftar, tautan reset akan dikirim. Periksa inbox dan spam.","success");};
-$("logoutBtn").onclick=async()=>{await sb.auth.signOut();showLogin();};
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();clearSay();const email=$("email").value.trim(),password=$("password").value;if(authMode==="signup"){const full_name=$("fullName").value.trim();if(!full_name){say("Isi nama lengkap dulu.","error");return;}const {data,error}=await sb.auth.signUp({email,password,options:{data:{full_name},emailRedirectTo:location.origin+location.pathname}});if(error)say("Pendaftaran gagal: "+error.message,"error");else if(data.session){say("Akun berhasil dibuat. Role awal Murid, menunggu Owner mengatur akses.","success");}else{say("Pendaftaran diterima. Buka email verifikasi, lalu kembali ke website ini untuk login. Role awal akun adalah Murid.","success");setAuthMode("login");}}else{const {error}=await sb.auth.signInWithPassword({email,password});if(error)say("Login gagal: "+error.message,"error");}});
+$("toggleAuth").onclick=()=>{clearSay();setAuthMode(authMode==="login"?"signup":"login");};
+$("forgotBtn").onclick=async()=>{if(!sb){say("Isi konfigurasi Supabase terlebih dahulu.","error");return;}const email=$("email").value.trim();if(!email){say("Isi email di kolom Email dulu.","error");return;}const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:"https://akonghaba.github.io/absensiku/"});if(error)say("Gagal mengirim tautan reset: "+error.message,"error");else say("Jika email terdaftar, tautan reset akan dikirim. Periksa inbox dan spam.","success");};
+$("logoutBtn").onclick=async()=>{recoveryMode=false;await sb.auth.signOut();showLogin();};
+
+$("recoveryForm").addEventListener("submit",async e=>{
+ e.preventDefault();const password=$("newPassword").value,confirm=$("confirmPassword").value;
+ if(password.length<6){say("Kata sandi minimal 6 karakter.","error");return;}
+ if(password!==confirm){say("Kedua kata sandi belum sama.","error");return;}
+ const {error}=await sb.auth.updateUser({password});
+ if(error){say("Gagal memperbarui kata sandi: "+error.message,"error");return;}
+ recoveryMode=false;$("recoveryView").classList.add("hidden");await sb.auth.signOut();showLogin();say("Kata sandi berhasil diganti. Silakan login dengan kata sandi baru.","success");
+});
+
 $("attendanceDate").addEventListener("change",loadAttendance);
 $("studentForm").addEventListener("submit",async e=>{e.preventDefault();if(!staff())return;const nama=$("studentName").value.trim(),nis=$("studentNis").value.trim();const {error}=await sb.from("students").insert({name:nama,nis,class_name:CLASS_NAME});if(error)say("Gagal menambahkan siswa: "+error.message,"error");else{$("studentName").value="";$("studentNis").value="";say("Siswa ditambahkan.","success");await loadStudents();await loadAttendance();}});
 $("saveAttendance").onclick=async()=>{if(!staff())return;const date=$("attendanceDate").value;if(!date){say("Pilih tanggal terlebih dahulu.","error");return;}const rows=[...$("attendanceList").querySelectorAll("select[data-student]")];if(!rows.length){say("Belum ada siswa untuk disimpan.","error");return;}$("saveAttendance").disabled=true;let failed=null;for(const el of rows){const st=students.find(s=>s.id===el.dataset.student);const existing=attendanceRows.find(a=>a.student_id===el.dataset.student);const values={student_id:el.dataset.student,student_nis:st?.nis||"",student_name:st?.name||"",attendance_date:date,status:el.value,marked_by:sessionUser.id,class_name:CLASS_NAME};const result=existing?await sb.from("attendance").update(values).eq("id",existing.id):await sb.from("attendance").insert(values);if(result.error){failed=result.error;break;}}$("saveAttendance").disabled=false;if(failed)say("Gagal menyimpan: "+failed.message,"error");else{say("Presensi tersimpan.","success");await loadAttendance();await loadHistory();}};
+setAuthMode("login");
 setup();
 </script>
 </body></html>
